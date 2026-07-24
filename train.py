@@ -26,7 +26,7 @@ CONFIG = {
     "embed_dim": 256,
     "decoder_dim": 512,
     "attention_dim": 256,
-    "encoder_dim": 2048,
+    "encoder_dim": 768,
     "dropout": 0.5,
     "lr_decoder": 4e-4,
     "lr_encoder": 1e-5,

@@ -8,35 +8,32 @@ DecoderRNN  : LSTM that attends to image features at every timestep
 import torch
 import torch.nn as nn
 import torchvision.models as models
+from transformers import CLIPVisionModel
 
 
 class EncoderCNN(nn.Module):
-    def __init__(self, fine_tune: bool = False):
-        super().__init__()
-        resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
-        # Drop the final avgpool + fc layer; keep spatial feature map
-        modules = list(resnet.children())[:-2]
-        self.resnet = nn.Sequential(*modules)  # output: (B, 2048, 7, 7)
+    """CLIP's vision encoder, frozen by default. Outputs (B, 49, 768)."""
 
+    def __init__(self, fine_tune: bool = False,
+                 clip_model_name: str = "openai/clip-vit-base-patch32"):
+        super().__init__()
+        self.clip = CLIPVisionModel.from_pretrained(clip_model_name)
         self.fine_tune(fine_tune)
 
     def fine_tune(self, fine_tune: bool):
-        """By default freeze everything; optionally unfreeze last block."""
-        for param in self.resnet.parameters():
+        for param in self.clip.parameters():
             param.requires_grad = False
         if fine_tune:
-            # Unfreeze last residual block (layer4) only
-            for param in self.resnet[-1].parameters():
+            # Unfreeze only the last transformer block
+            for param in self.clip.vision_model.encoder.layers[-1].parameters():
                 param.requires_grad = True
 
     def forward(self, images):
-        """images: (B, 3, 224, 224) -> features: (B, 49, 2048)"""
-        features = self.resnet(images)              # (B, 2048, 7, 7)
-        B, C, H, W = features.shape
-        features = features.permute(0, 2, 3, 1)      # (B, 7, 7, 2048)
-        features = features.view(B, H * W, C)        # (B, 49, 2048)
-        return features
-
+        """images: (B, 3, 224, 224) -> features: (B, 49, 768)"""
+        outputs = self.clip(pixel_values=images)
+        # last_hidden_state: (B, 50, 768) -> index 0 is the [CLS] token, drop it
+        patch_embeddings = outputs.last_hidden_state[:, 1:, :]  # (B, 49, 768)
+        return patch_embeddings
 
 class BahdanauAttention(nn.Module):
     def __init__(self, encoder_dim, decoder_dim, attention_dim):
@@ -63,7 +60,7 @@ class BahdanauAttention(nn.Module):
 
 class DecoderRNN(nn.Module):
     def __init__(self, vocab_size, embed_dim=256, decoder_dim=512,
-                 encoder_dim=2048, attention_dim=256, dropout=0.5):
+                 encoder_dim=768, attention_dim=256, dropout=0.5):
         super().__init__()
         self.vocab_size = vocab_size
         self.decoder_dim = decoder_dim

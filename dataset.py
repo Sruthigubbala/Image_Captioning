@@ -25,17 +25,21 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
 def get_transforms(train: bool = True):
+    """CLIP normalization stats — different from ImageNet's ResNet stats."""
+    CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073]
+    CLIP_STD = [0.26862954, 0.26130258, 0.27577711]
+
     if train:
         return transforms.Compose([
             transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
             transforms.RandomHorizontalFlip(p=0.3),
             transforms.ToTensor(),
-            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+            transforms.Normalize(CLIP_MEAN, CLIP_STD),
         ])
     return transforms.Compose([
         transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
         transforms.ToTensor(),
-        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+        transforms.Normalize(CLIP_MEAN, CLIP_STD),
     ])
 
 

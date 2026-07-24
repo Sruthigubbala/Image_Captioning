@@ -5,3 +5,4 @@ pillow>=10.0.0
 nltk>=3.8.0
 matplotlib>=3.7.0
 numpy>=1.24.0
+transformers>=4.38.0
