@@ -1,4 +1,4 @@
-flowchart TD
+srestreamlit run app.pyflowchart TD
     A["Flickr8k_Dataset<br/>(Images/ + captions.txt)"] --> B["vocabulary.py<br/>build_vocab(), encode(), decode()"]
     A --> C["Custom Dataset class<br/>(image + tokenized caption pairs)"]
     B --> C
