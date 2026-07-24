@@ -36,7 +36,6 @@ CONFIG = {
     "freq_threshold": 5,
 }
 
-
 def train_one_epoch(encoder, decoder, dataloader, criterion,
                      optimizer, device, grad_clip):
     decoder.train()
