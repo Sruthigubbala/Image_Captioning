@@ -88,7 +88,7 @@ def build_vocab_from_captions(captions_path: str, freq_threshold: int = 5):
 
 
 def get_dataloader(images_dir, captions_path, vocab, batch_size=32,
-                    max_len=35, train=True, num_workers=2):
+                    max_len=35, train=True, num_workers=0):
     dataset = Flickr8kDataset(images_dir, captions_path, vocab, max_len, train)
     return DataLoader(
         dataset,

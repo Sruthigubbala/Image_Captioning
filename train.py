@@ -31,7 +31,7 @@ CONFIG = {
     "lr_decoder": 4e-4,
     "lr_encoder": 1e-5,
     "fine_tune_encoder": False,
-    "num_epochs": 3,
+    "num_epochs": 15,
     "grad_clip": 5.0,
     "freq_threshold": 5,
 }
