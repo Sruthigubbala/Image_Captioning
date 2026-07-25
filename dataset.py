@@ -8,10 +8,16 @@ Expected directory layout:
         captions.txt            # "image_name,caption" per line (Flickr8k format)
 
 captions.txt has 5 rows per image (one per caption).
+
+FIX: added get_train_val_dataloaders(), which splits by unique image
+filename (not by caption row) before building loaders. Splitting by row
+would leak the same image into both train and val (since each image has
+5 caption rows), making a "validation loss" meaningless.
 """
 
 import os
 import csv
+import random
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
@@ -60,10 +66,14 @@ def load_captions_file(captions_path: str):
 
 
 class Flickr8kDataset(Dataset):
-    def __init__(self, images_dir, captions_path, vocab: Vocabulary,
+    def __init__(self, images_dir, pairs, vocab: Vocabulary,
                  max_len: int = 35, train: bool = True):
+        """
+        pairs: list of (image_filename, caption_text) already filtered
+               to the desired split (train or val).
+        """
         self.images_dir = images_dir
-        self.pairs = load_captions_file(captions_path)
+        self.pairs = pairs
         self.vocab = vocab
         self.max_len = max_len
         self.transform = get_transforms(train)
@@ -91,9 +101,29 @@ def build_vocab_from_captions(captions_path: str, freq_threshold: int = 5):
     return vocab
 
 
-def get_dataloader(images_dir, captions_path, vocab, batch_size=32,
+def split_pairs_by_image(pairs, val_ratio: float = 0.1, seed: int = 42):
+    """
+    Splits (image, caption) pairs into train/val by UNIQUE IMAGE FILENAME,
+    so all 5 captions of a given image stay together on the same side.
+    Without this, the same image could appear in both train and val,
+    which would make validation loss meaningless (data leakage).
+    """
+    unique_images = sorted({img for img, _ in pairs})
+    rng = random.Random(seed)
+    rng.shuffle(unique_images)
+
+    n_val = max(1, int(len(unique_images) * val_ratio))
+    val_images = set(unique_images[:n_val])
+    train_images = set(unique_images[n_val:])
+
+    train_pairs = [(img, cap) for img, cap in pairs if img in train_images]
+    val_pairs = [(img, cap) for img, cap in pairs if img in val_images]
+    return train_pairs, val_pairs
+
+
+def get_dataloader(images_dir, pairs, vocab, batch_size=32,
                     max_len=35, train=True, num_workers=0):
-    dataset = Flickr8kDataset(images_dir, captions_path, vocab, max_len, train)
+    dataset = Flickr8kDataset(images_dir, pairs, vocab, max_len, train)
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -104,6 +134,22 @@ def get_dataloader(images_dir, captions_path, vocab, batch_size=32,
     )
 
 
+def get_train_val_dataloaders(images_dir, captions_path, vocab, batch_size=32,
+                               max_len=35, val_ratio=0.1, num_workers=0, seed=42):
+    """
+    Convenience wrapper used by train.py: loads captions.txt once, splits
+    by image, and returns (train_loader, val_loader).
+    """
+    all_pairs = load_captions_file(captions_path)
+    train_pairs, val_pairs = split_pairs_by_image(all_pairs, val_ratio, seed)
+
+    train_loader = get_dataloader(images_dir, train_pairs, vocab, batch_size,
+                                   max_len, train=True, num_workers=num_workers)
+    val_loader = get_dataloader(images_dir, val_pairs, vocab, batch_size,
+                                 max_len, train=False, num_workers=num_workers)
+    return train_loader, val_loader
+
+
 if __name__ == "__main__":
     # Example usage (paths will need to match your local data layout)
     CAPTIONS_PATH = "data/captions.txt"
@@ -112,7 +158,10 @@ if __name__ == "__main__":
     vocab = build_vocab_from_captions(CAPTIONS_PATH, freq_threshold=5)
     vocab.save("vocab.pkl")
 
-    loader = get_dataloader(IMAGES_DIR, CAPTIONS_PATH, vocab, batch_size=4)
-    images, captions = next(iter(loader))
+    train_loader, val_loader = get_train_val_dataloaders(
+        IMAGES_DIR, CAPTIONS_PATH, vocab, batch_size=4, val_ratio=0.1
+    )
+    images, captions = next(iter(train_loader))
+    print("Train batches:", len(train_loader), " Val batches:", len(val_loader))
     print("Image batch shape:", images.shape)
     print("Caption batch shape:", captions.shape)

@@ -1,8 +1,14 @@
 """
 model.py
-EncoderCNN  : pretrained ResNet50 (frozen backbone) -> spatial feature map
+EncoderCNN  : CLIP vision encoder (frozen by default) -> spatial feature map
 Attention   : Bahdanau (additive) attention over the CNN feature map
 DecoderRNN  : LSTM that attends to image features at every timestep
+
+FIX in generate(): beam search previously picked the sequence with the
+highest raw summed log-probability. Since log-probs are negative and
+accumulate every timestep, shorter sequences were mathematically favored
+regardless of correctness — a common cause of short/generic/wrong captions.
+Now scores are length-normalized before picking the best beam.
 """
 
 import torch
@@ -34,6 +40,7 @@ class EncoderCNN(nn.Module):
         # last_hidden_state: (B, 50, 768) -> index 0 is the [CLS] token, drop it
         patch_embeddings = outputs.last_hidden_state[:, 1:, :]  # (B, 49, 768)
         return patch_embeddings
+
 
 class BahdanauAttention(nn.Module):
     def __init__(self, encoder_dim, decoder_dim, attention_dim):
@@ -117,10 +124,17 @@ class DecoderRNN(nn.Module):
 
         return predictions, alphas
 
-    def generate(self, encoder_out, vocab, max_len=35, beam_size=3, device="cpu"):
+    def generate(self, encoder_out, vocab, max_len=35, beam_size=3, device="cpu",
+                 length_penalty: float = 0.7):
         """
         Beam search decoding for inference (single image, batch size 1).
-        Returns best caption token-id list and the attention weights per step.
+
+        length_penalty:
+            0.0 -> no normalization (old behavior, biased toward short sequences)
+            0.6-1.0 -> typical range; higher values reward longer captions more.
+            1.0 -> full length normalization (divide by length).
+
+        Returns best caption token-id list.
         """
         k = beam_size
         vocab_size = self.vocab_size
@@ -134,7 +148,6 @@ class DecoderRNN(nn.Module):
         seqs = torch.full((k, 1), start_idx, dtype=torch.long, device=device)
         top_scores = torch.zeros(k, 1, device=device)
         complete_seqs, complete_scores = [], []
-        alphas_list = [[] for _ in range(k)]
 
         step = 1
         while True:
@@ -181,7 +194,14 @@ class DecoderRNN(nn.Module):
             complete_seqs = seqs.tolist()
             complete_scores = top_scores.squeeze(1).tolist()
 
-        best_idx = complete_scores.index(max(complete_scores))
+        # FIX: normalize by sequence length before picking the winner, so a
+        # confident 4-word wrong caption doesn't automatically beat a
+        # correct 9-word one.
+        normalized_scores = [
+            score / (len(seq) ** length_penalty)
+            for score, seq in zip(complete_scores, complete_seqs)
+        ]
+        best_idx = normalized_scores.index(max(normalized_scores))
         return complete_seqs[best_idx]
 
 
